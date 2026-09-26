@@ -1,7 +1,3 @@
-# 日线载荷和覆盖说明里有行情，不进入公开仓库
-data/payload.js
-dataset.html
-
 # 本机入口，含本地路径
 主页面.html
 
