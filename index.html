@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>全球资产历史模拟交易 · Historical Trading Simulator</title>
+<meta name="description" content="用真实历史行情做的模拟交易游戏：你只能看到当天及过去，未来不可见。">
+<link rel="stylesheet" href="css/simulator.css">
+</head>
+<body>
+<script>
+/* 全局错误横幅：任何脚本异常都直接显示出来，避免白屏无从排查 */
+window.addEventListener('error', function (ev) {
+  try {
+    var d = document.getElementById('__errbanner');
+    if (!d) {
+      d = document.createElement('div'); d.id = '__errbanner';
+      d.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;background:#2a1717;' +
+        'border:1px solid #7d3535;color:#ffd7d7;padding:12px 16px;border-radius:10px;' +
+        'font:12px/1.6 Menlo,Consolas,monospace;white-space:pre-wrap;max-height:40vh;overflow:auto';
+      document.body.appendChild(d);
+    }
+    d.textContent += '\u26a0 脚本错误: ' + (ev.message || ev.error) + '\n' +
+      ((ev.error && ev.error.stack) || '') + '\n';
+  } catch (_) { }
+});
+</script>
+
+<div id="boot">
+  <div style="text-align:center">
+    <div style="width:44px;height:44px;margin:0 auto 18px;border-radius:50%;border:3px solid #232c3a;border-top-color:#e8b339;animation:spin 1s linear infinite"></div>
+    <div style="font-size:15px;color:#e6edf3;font-weight:600">全球资产历史模拟交易</div>
+    <div style="font-size:12px;color:#6b7a8d;margin-top:8px" id="bootMsg">正在解码历史行情数据…</div>
+  </div>
+</div>
+
+<div class="app">
+
+  <!-- ================= 顶栏 ================= -->
+  <header>
+    <div class="brand">
+      <span class="dot"></span>
+      <span>全球资产历史模拟交易
+        <small>HISTORICAL TRADING SIMULATOR · <b id="verTag" style="color:#6b7a8d">v20 · 投资组合</b></small>
+      </span>
+    </div>
+
+    <div class="clock">
+      <button class="iconbtn" id="btnPlay" title="播放 / 暂停">▶</button>
+      <div class="cal">
+        <div class="d" id="curDate">————-——-——</div>
+        <div class="s" id="curSub">等待开始</div>
+        <div class="s" id="nextIn"></div>
+      </div>
+      <button class="iconbtn" id="btnStep" title="手动前进一个交易日">⏭</button>
+      <div class="speedbox">
+        <div class="speeds" id="speeds">
+          <button data-ms="0">暂停</button>
+          <button data-ms="3600000">1时/天</button>
+          <button data-ms="600000">10分/天</button>
+          <button data-ms="60000">1分/天</button>
+          <button data-ms="10000" class="on">10秒/天</button>
+          <button data-ms="3000">3秒/天</button>
+          <button data-ms="300">极速</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="acct">
+      <div class="kv"><div class="l">总权益</div><div class="v" id="hEquity">—</div></div>
+      <div class="kv"><div class="l">总收益</div><div class="v" id="hRet">—</div></div>
+      <a class="iconbtn" href="dataset.html" title="行情数据集说明">库</a>
+      <button class="iconbtn" id="btnSet" title="设置 / 重新开局">⚙</button>
+      <button class="iconbtn" id="btnHelp" title="玩法说明">?</button>
+    </div>
+    <div class="prog" id="prog"></div>
+  </header>
+
+  <!-- ============ ① 标的（最左） ============ -->
+  <aside class="pane side-l">
+    <div class="ph phcol">
+      <span class="phcap">① 标的</span>
+      <input id="wSearch" class="wsearch" type="search" placeholder="搜索资产 / 代码…" autocomplete="off">
+      <span class="wmeta" id="mkStat"></span>
+    </div>
+    <div class="scroll" id="watch"></div>
+  </aside>
+
+  <div class="splitter" id="spL" title="拖动调整标的栏宽度 · 双击恢复默认"></div>
+
+  <!-- ============ ② 持仓（中间） ============ -->
+  <aside class="pane side-m">
+    <div class="acctgrid">
+      <div class="bigline">
+        <div class="t">总权益 EQUITY
+          <button class="tiny" id="btnAcctFold" title="收起账户明细，给持仓更多空间">⌃</button>
+        </div>
+        <div class="n" id="sEquity">—</div>
+        <div class="p" id="sReturn">—</div>
+      </div>
+      <div id="acctRows">
+        <div class="arow2"><span class="k">可用资金</span><span class="v" id="sCash">—</span></div>
+        <div class="arow2"><span class="k">多头市值</span><span class="v" id="sLong">—</span></div>
+        <div class="arow2"><span class="k">空头市值</span><span class="v" id="sShort">—</span></div>
+        <div class="arow2"><span class="k">净头寸</span><span class="v" id="sNet">—</span></div>
+        <div class="arow2"><span class="k">浮动盈亏</span><span class="v" id="sUpnl">—</span></div>
+        <div class="arow2"><span class="k">已实现盈亏</span><span class="v" id="sRpnl">—</span></div>
+        <div class="arow2"><span class="k">累计手续费</span><span class="v" id="sFee">—</span></div>
+      </div>
+    </div>
+
+    <div class="ph">
+      <span class="phcap">② 我的持仓</span>
+      <span class="r">
+        <span id="posStat"></span>
+        <button class="tiny" id="btnDense" title="紧凑 / 舒适显示">▤</button>
+        <button class="tiny" id="btnWide" title="一键加宽 / 还原持仓栏">⇔</button>
+      </span>
+    </div>
+    <div class="scroll" id="posWrap"></div>
+  </aside>
+
+  <div class="splitter" id="spR" title="拖动调整持仓栏宽度 · 双击恢复默认"></div>
+
+  <!-- ============ ③ K线图 + 买卖（最右） ============ -->
+  <section class="main">
+    <div class="viewzone">
+      <div class="tabs" id="tabs">
+        <button data-v="chart" class="on">K线图</button>
+        <button data-v="equity">资金曲线</button>
+        <button data-v="trades">成交记录</button>
+        <button data-v="stats">绩效统计</button>
+        <button data-v="analysis">持仓分析</button>
+        <button data-v="pfolios">投资组合</button>
+        <span class="sp"></span>
+        <button class="tool" id="btnRestart" title="重新开局">↺ 重新开局</button>
+      </div>
+
+      <!-- K线 -->
+      <div class="view on" data-v="chart">
+        <div class="chartwrap">
+          <canvas id="cvMain"></canvas>
+          <div class="legend" id="legend"></div>
+          <div class="tip" id="tipMain"></div>
+        </div>
+        <div class="chartbar" id="chartbar">
+          <span>显示区间</span>
+          <button class="rng" data-n="60">近2月</button>
+          <button class="rng" data-n="180">近半年</button>
+          <button class="rng on" data-n="365">近1年</button>
+          <button class="rng" data-n="1095">近3年</button>
+          <button class="rng" data-n="1825">近5年</button>
+          <button class="rng" data-n="0">全部</button>
+          <span style="width:10px"></span>
+          <button class="tog on" data-ma="5">MA5</button>
+          <button class="tog on" data-ma="20">MA20</button>
+          <button class="tog" data-ma="60">MA60</button>
+          <span style="width:10px"></span>
+          <button class="tog on" id="tgMarks" title="显示 / 隐藏历史买卖点">买卖点</button>
+          <span class="sp"></span>
+          <span id="chartInfo"></span>
+        </div>
+      </div>
+
+      <!-- 资金曲线 -->
+      <div class="view" data-v="equity">
+        <div class="chartwrap">
+          <canvas id="cvEq"></canvas>
+          <div class="legend" id="legendEq"></div>
+          <div class="tip" id="tipEq"></div>
+        </div>
+        <div class="chartbar">
+          <button class="tog on" id="tgBench">对比基准</button>
+          <button class="tog on" id="tgLog">对数坐标</button>
+          <span class="sp"></span>
+          <span id="eqInfo"></span>
+        </div>
+      </div>
+
+      <!-- 成交记录 -->
+      <div class="view" data-v="trades">
+        <div class="scroll" id="tradeWrap"></div>
+      </div>
+
+      <!-- 绩效统计 -->
+      <div class="view" data-v="stats">
+        <div class="scroll" id="statsWrap"></div>
+      </div>
+
+      <!-- 持仓分析 -->
+      <div class="view" data-v="analysis">
+        <div class="scroll" id="analysisWrap"></div>
+      </div>
+
+      <!-- 投资组合 -->
+      <div class="view" data-v="pfolios">
+        <div class="scroll" id="pfWrap"></div>
+      </div>
+    </div>
+
+    <div class="hsplitter" id="spTrade" title="上下拖动调整交易面板高度 · 双击还原"></div>
+
+    <!-- 当前标的的持仓 + 下单 -->
+    <div class="tradezone" id="tradeZone">
+      <div class="selpos" id="selPos"></div>
+      <div class="ordbox">
+        <div class="ordrow1">
+          <div class="ordhd">
+            <div>
+              <div class="nm" id="oName">—</div>
+              <div class="code" id="oCode">请从左侧选择资产</div>
+            </div>
+          </div>
+          <div class="px">
+            <div class="n" id="oPrice">—</div>
+            <div class="c" id="oChange">—</div>
+          </div>
+          <div class="seg seg4" id="segSide">
+            <button class="buy on" data-s="openLong">开多</button>
+            <button class="sell" data-s="openShort">开空</button>
+            <button class="closel" data-s="closeLong">平多</button>
+            <button class="closes" data-s="closeShort">平空</button>
+          </div>
+        </div>
+        <div class="ordrow2">
+          <div class="field">
+            <label>金额</label>
+            <input type="number" id="inAmt" value="10000" min="0" step="1000">
+            <span class="u">USD</span>
+          </div>
+          <div class="quicks" id="quicks">
+            <button data-q="0.1">10%</button>
+            <button data-q="0.25">25%</button>
+            <button data-q="0.5">50%</button>
+            <button data-q="0.75">75%</button>
+            <button data-q="1">全部</button>
+          </div>
+          <button class="submit" id="btnSubmit">买入</button>
+        </div>
+        <div class="hint" id="ordHint"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ================= 开局 / 设置弹窗 ================= -->
+<div class="mask" id="maskGame">
+  <div class="modal">
+
+    <!-- ===== 有存档时只显示这一屏：续局，任何设置都不用重填 ===== -->
+    <div id="resumeBlock" style="display:none">
+      <h2>继续上局</h2>
+      <div class="mh">
+        接着上次停下的时间和持仓继续。
+        <b style="color:#e8b339">下面这些设置都会原样保留，不需要你再填一遍。</b>
+      </div>
+      <div class="mb">
+        <div class="savedbox" id="savedBox"></div>
+      </div>
+      <div class="mf" style="justify-content:space-between">
+        <button class="btn gho" id="btnNewGame">丢弃存档，重新开一局</button>
+        <button class="btn pri" id="btnContinue">继续上局</button>
+      </div>
+    </div>
+
+    <!-- ===== 新开一局（只有主动点"重新开一局"或没有存档时才出现）===== -->
+    <div id="newBlock">
+    <h2>开始一局模拟交易</h2>
+    <div class="mh">
+      你将回到历史中的某一天，只看到当天的行情，然后用虚拟资金交易全球主流资产。<br>
+      <b style="color:#e8b339">未来的价格对你不可见</b>——时间每前进一天，才会揭开新的一页。
+    </div>
+    <div class="mb">
+      <div style="font-size:12px;color:#9aa7b8;margin-bottom:9px">选择开局时点</div>
+      <div class="scen" id="scenList"></div>
+
+      <div style="font-size:12px;color:#9aa7b8;margin:18px 0 4px">参数设置</div>
+      <div class="setrow">
+        <span class="l">初始资金<small>虚拟本金，单位 USD</small></span>
+        <input type="number" id="setCash" value="100000" min="1000" step="10000">
+      </div>
+      <div class="setrow">
+        <span class="l">手续费率<small>按成交金额双向收取</small></span>
+        <input type="number" id="setFee" value="0.1" min="0" max="2" step="0.01">
+      </div>
+      <div class="setrow">
+        <span class="l">时间流速<small>真实时间 → 游戏内交易日</small></span>
+        <select id="setSpeed">
+          <option value="10000" selected>10 秒 = 1 个交易日（推荐）</option>
+          <option value="3000">3 秒 = 1 个交易日</option>
+          <option value="60000">1 分钟 = 1 个交易日</option>
+          <option value="600000">10 分钟 = 1 个交易日</option>
+          <option value="3600000">1 小时 = 1 个交易日（很慢）</option>
+          <option value="0">手动推进（不自动走）</option>
+        </select>
+      </div>
+      <div class="setrow" style="border:none">
+        <span class="l">允许做空<small>关闭后只能先买后卖</small></span>
+        <select id="setShort"><option value="1" selected>允许</option><option value="0">不允许</option></select>
+      </div>
+    </div>
+    <div class="mb" style="padding-top:0">
+      <div id="overwriteWarn" class="warnbox" style="display:none"></div>
+    </div>
+    <div class="mf">
+      <button class="btn gho" id="btnBackResume" style="display:none">← 返回继续上局</button>
+      <button class="btn pri" id="btnStart">开始交易</button>
+    </div>
+    </div><!-- /newBlock -->
+  </div>
+</div>
+
+<!-- ================= 帮助 ================= -->
+<div class="mask" id="maskHelp">
+  <div class="modal">
+    <h2>玩法说明</h2>
+    <div class="mh">一个"不知道未来"的历史行情交易练习场。</div>
+    <div class="mb help">
+      <h3>画面分三栏</h3>
+      <ul>
+        <li><b>① 最左 · 标的</b>：搜索并点选要交易的资产。</li>
+        <li><b>② 中间 · 我的持仓</b>：上方是账户概况（权益、可用资金、多空市值、盈亏），
+            下方是全部持仓，每条腿都能单独「平」。</li>
+        <li><b>③ 最右 · K线图 + 买卖</b>：上面看图（可切资金曲线 / 成交记录 / 绩效统计），
+            下面就是该标的的持仓和下单区。</li>
+        <li>两条<b>竖向分隔条</b>可拖动调栏宽（双击复原）；图表和下单区之间那条<b>横向分隔条</b>
+            可拖动调高度（双击复原）。</li>
+      </ul>
+      <h3>核心规则</h3>
+      <ul>
+        <li>数据是<b>真实历史日线</b>（开高低收），覆盖全球主要股指、大宗商品、加密资产。覆盖范围与口径见<a href="dataset.html">行情数据集说明</a>。</li>
+        <li>你只能看到<b>当前日期及之前</b>的走势，右边（未来）永远是黑的。</li>
+        <li>默认 <b>10 秒真实时间 = 1 个交易日</b>；顶栏可随时切换 1 小时 / 10 分钟 / 1 分钟 / 3 秒 / 极速，也能手动点 ⏭ 单步。</li>
+        <li>日期下方有<b>倒计时</b>，会实时显示离下一个交易日还有多久——它在走，只是可能很慢。</li>
+        <li>周末和休市日不在时间轴上——每推进一格，就是下一个真实交易日。</li>
+        <li><b>双向持仓</b>：同一资产可以<b>同时</b>持有<b>多头</b>和<b>空头</b>两笔独立仓位，
+            互不抵消（对冲模式）。下单区四个按钮分别是 <code>开多</code> <code>开空</code> <code>平多</code> <code>平空</code>。</li>
+        <li>下单按<b>金额</b>计算，自动折算数量（支持小数）。成交价 = 当日收盘价，另收手续费。</li>
+        <li>开空占用 <b>50% 保证金</b>，按空头市值冻结；可用资金 = 现金 − 空头保证金。</li>
+        <li><b>总权益跌破 0 即爆仓</b>，本局结束。权益 = 现金 + 多头市值 − 空头市值。</li>
+      </ul>
+      <h3>操作提示</h3>
+      <ul>
+        <li>①点标的 → ③看图 → ③下单，持仓在②里。</li>
+        <li><b>联动定位</b>：点①里的某个资产，②持仓栏会<b>自动滚动到它的持仓并高亮</b>
+            （金色竖条 + 闪烁）；反过来点②里的某个持仓，①标的栏也会跳过去。
+            当前选中的资产在持仓栏里会<b>常亮</b>一条金色标记，一眼可辨。</li>
+        <li><b>想看得更宽敞</b>：拖两侧竖向分隔条调宽；中间栏右上角 <code>⇔</code> 一键加宽；
+            总权益旁的 <code>⌃</code> 收起账户明细，把高度全留给持仓。</li>
+        <li>持仓栏右上角 <code>▤</code> 切换<b>紧凑模式</b>，每条腿压成一行，同样高度多看约一倍。</li>
+        <li><b>减仓（不是全平）</b>：持仓行上的 <code>平</code> 按钮会弹出一个菜单，
+            可以选 <code>10%</code> <code>25%</code> <code>50%</code> <code>75%</code> <code>全部</code>，
+            只平掉这条腿的一部分，剩下的继续持有。开仓均价保持不变。</li>
+        <li>想同时做多做空：先点<code>开多</code>买一笔，再点<code>开空</code>卖一笔，两笔会并列显示。</li>
+        <li>K线上方的<b>区间按钮</b>（近2月 / 近半年 / 近1年 / 近3年 / 近5年 / 全部）
+            按<b>真实日历天数</b>取数；图表右下角会显示当前实际显示的起止日期。</li>
+        <li>鼠标悬停在图上可看当天开高低收与涨跌幅，当天有成交会一并列出。</li>
+        <li><b>K线上的买卖点</b>：<b style="color:#f0433f">▲ 实心红 = 开多</b>、
+            <b style="color:#f0433f">△ 空心红 = 平空</b>、
+            <b style="color:#12b76a">▼ 实心绿 = 开空</b>、
+            <b style="color:#12b76a">▽ 空心绿 = 平多</b>。
+            买点画在 K 线下方，卖点画在上方；三角形大小代表成交金额大小。
+            图表工具条的 <code>买卖点</code> 可以开关。</li>
+        <li>"资金曲线"页可对比<b>等权买入持有基准</b>，看自己有没有跑赢躺平。</li>
+        <li><b>"持仓分析"页</b>：资产配置占比（含现金，合计 100%）、空头敞口、类别分布、
+            盈亏贡献排行、集中度（最大单一 / Top3 / HHI），以及全部持仓的明细表。</li>
+        <li><b>"投资组合"页</b>：把若干资产配成一组并设定目标权重，然后<b>一键对整个组合加仓 /
+            分档减仓 / 清仓</b>，按权重自动分配到每个成分。组合保存在本地，跨局沿用。</li>
+        <li>进度会自动存在浏览器里，关掉网页再打开可以"继续上局"。
+            <b>有存档时弹窗只显示「继续上局」和一份设置摘要</b>——时间流速、手续费率、初始资金、
+            做空开关都是上次的值，不用重填；想改这些参数就点「丢弃存档，重新开一局」。</li>
+        <li><b>投资组合</b>：在"投资组合"页把若干资产配成一组、设好目标权重，之后
+            「一键加仓 / 建仓」会按权重把金额分摊到每个成分；「减仓 25% / 50% / 全部清仓」
+            按各成分的持仓比例整组减仓。组合存在本地，<b>跨局沿用</b>。</li>
+        <li><b>你的设置会被完整保留</b>：时间流速、下单方向、K线区间、均线开关、图表选项、各栏宽度与折叠状态，更新版本后依旧沿用上局的选择。</li>
+      </ul>
+      <h3>为什么要这样设计</h3>
+      <ul>
+        <li>看历史图表时人人都是股神，因为你知道后面发生了什么。这个游戏把"后面"删掉，
+            逼你在<b>信息不完整</b>的条件下做决策——这才是交易的真实处境。</li>
+      </ul>
+    </div>
+    <div class="mf"><button class="btn pri" id="btnHelpOk">知道了</button></div>
+  </div>
+</div>
+
+<!-- 减仓菜单（点持仓行上的「平」弹出） -->
+<div class="popmenu" id="popClose"></div>
+
+<div class="toast" id="toast"></div>
+
+<script src="data/payload.js"></script>
+<script src="js/01_codec.js"></script>
+<script src="js/02_chart.js"></script>
+<script src="js/03_game.js"></script>
+</body>
+</html>
